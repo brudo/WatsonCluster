@@ -3,11 +3,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using WatsonTcp;
 
 namespace WatsonCluster
 {
+    /// <summary>
+    /// The Watson cluster server node (receives connections from clients).  Use ClusterNode, which encapsulates this class.
+    /// </summary>
     public class ClusterServer : IDisposable
     {
         #region Public-Members
@@ -28,6 +32,14 @@ namespace WatsonCluster
 
         #region Constructors-and-Factories
 
+        /// <summary>
+        /// Start the cluster server.
+        /// </summary>
+        /// <param name="port">The TCP port on which the cluster server should listen.</param>
+        /// <param name="debug">Enable or disable debug logging to the console.</param>
+        /// <param name="clientConnected">Function to be called when the peer connects.</param>
+        /// <param name="clientDisconnected">Function to be called when the peer disconnects.</param>
+        /// <param name="messageReceived">Function to be called when a message is received from the peer.</param>
         public ClusterServer(int port, bool debug, Func<string, bool> clientConnected, Func<string, bool> clientDisconnected, Func<string, byte[], bool> messageReceived)
         {
             if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException(nameof(port));
@@ -47,6 +59,10 @@ namespace WatsonCluster
 
         #region Public-Methods
 
+        /// <summary>
+        /// Determines if a specified client is connected to the local server.
+        /// </summary>
+        /// <returns>True if connected.</returns>
         public bool IsConnected(string ipPort)
         {
             if (Wtcp == null)
@@ -58,6 +74,12 @@ namespace WatsonCluster
             return Wtcp.IsClientConnected(ipPort);
         }
 
+        /// <summary>
+        /// Send a message to the specified client.
+        /// </summary>
+        /// <param name="ipPort">The IP:port of the client.</param>
+        /// <param name="data">Data to send to the client.</param>
+        /// <returns>True if successful.</returns>
         public bool Send(string ipPort, byte[] data)
         {
             if (Wtcp == null)
@@ -77,6 +99,34 @@ namespace WatsonCluster
             }
         }
 
+        /// <summary>
+        /// Send a message to the specified client, asynchronously.
+        /// </summary>
+        /// <param name="ipPort">The IP:port of the client.</param>
+        /// <param name="data">Data to send to the client.</param>
+        /// <returns>Task with Boolean indicating if the message was sent successfully.</returns>
+        public async Task<bool> SendAsync(string ipPort, byte[] data)
+        {
+            if (Wtcp == null)
+            {
+                if (Debug) Console.WriteLine("Server is null, cannot send");
+                return false;
+            }
+            if (Wtcp.IsClientConnected(ipPort))
+            {
+                await Wtcp.SendAsync(ipPort, data);
+                return true;
+            }
+            else
+            {
+                if (Debug) Console.WriteLine("Server is not connected, cannot send");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Destroy the server and release resources.
+        /// </summary>
         public void Dispose()
         {
             Dispose(true);
