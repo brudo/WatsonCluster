@@ -249,8 +249,11 @@ namespace WatsonCluster
             }
             else
             {
-                NonPeerClientIpPorts.Add(ipPort);
-                NonPeerClientConnected?.Invoke(ipPort);
+                NonPeerUpdateSemSlm.Wait();
+                bool added = NonPeerClientIpPorts.Add(ipPort);
+                NonPeerUpdateSemSlm.Release();
+                if (added)
+                   NonPeerClientConnected?.Invoke(ipPort);
             }
 
             return true;
@@ -266,9 +269,13 @@ namespace WatsonCluster
 
                 ClusterUnhealthy();
             }
-            else if (NonPeerClientIpPorts.Remove(ipPort))
+            else if (NonPeerClientIpPorts.Contains(ipPort))
             {
-                NonPeerClientDisconnected?.Invoke(ipPort);
+                NonPeerUpdateSemSlm.Wait();
+                bool removed = NonPeerClientIpPorts.Remove(ipPort);
+                NonPeerUpdateSemSlm.Release();
+                if (removed)
+                    NonPeerClientDisconnected?.Invoke(ipPort);
             }
             else
             {
