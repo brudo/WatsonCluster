@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace WatsonCluster
@@ -27,8 +29,16 @@ namespace WatsonCluster
         private Func<bool> ClusterHealthy;
         private Func<bool> ClusterUnhealthy;
         private Func<byte[], bool> MessageReceived;
+        private Func<string, bool> NonPeerClientConnected;
+        private Func<string, bool> NonPeerClientDisconnected;
+        private Func<string, bool> ClusterPeerReplaced;
 
         private string CurrPeerIpPort;
+        private readonly SemaphoreSlim PeerUpdateSemSlm, NonPeerUpdateSemSlm;
+        private readonly HashSet<string> OldPeerClientIpPorts, NonPeerClientIpPorts;
+        private readonly HashSet<string> AllowedPeerClientIps;
+
+        private static readonly char[] singleColonSplit = { ':' };
 
         #endregion
 
@@ -51,7 +61,15 @@ namespace WatsonCluster
             Func<bool> clusterHealthy, 
             Func<bool> clusterUnhealthy, 
             Func<byte[], bool> messageReceived,
-            bool debug)
+            bool debug = false, // produces console output
+
+            IEnumerable<string> alternateClientPeerIps = null, // walked once
+
+            // optional callbacks for non-peer clients
+            Func<string, bool> nonPeerClientConnected = null,
+            Func<string, bool> nonPeerClientDisconnected = null,
+            Func<string, bool> clusterPeerReplaced = null
+            )
         {
             if (String.IsNullOrEmpty(peerIp)) throw new ArgumentNullException(nameof(peerIp));
             if (peerPort < 1) throw new ArgumentOutOfRangeException(nameof(peerPort));
@@ -67,6 +85,22 @@ namespace WatsonCluster
             ClusterUnhealthy = clusterUnhealthy;
             MessageReceived = messageReceived;
             Debug = debug;
+
+            ClusterPeerReplaced = clusterPeerReplaced;
+            NonPeerClientConnected = nonPeerClientConnected;
+            NonPeerClientDisconnected = nonPeerClientDisconnected;
+
+            // Value not currently used, but preferred over HashSet due to concurrency
+            OldPeerClientIpPorts = new HashSet<string>();
+            NonPeerClientIpPorts = new HashSet<string>();
+            PeerUpdateSemSlm = new SemaphoreSlim(1);
+            NonPeerUpdateSemSlm = new SemaphoreSlim(1);
+
+            AllowedPeerClientIps = new HashSet<string>();
+            if (!string.IsNullOrEmpty(PeerIp))
+                AllowedPeerClientIps.Add(PeerIp);
+            if (alternateClientPeerIps != null)
+                AllowedPeerClientIps.UnionWith(alternateClientPeerIps);
 
             Server = new ClusterServer(LocalPort, Debug, SrvClientConnect, SrvClientDisconnect, SrvMsgReceived);
             Client = new ClusterClient(PeerIp, PeerPort, Debug, CliServerConnect, CliServerDisconnect, CliMsgReceived);
@@ -106,13 +140,13 @@ namespace WatsonCluster
                 return false;
             }
 
-            if (Client.IsConnected())
+            if (!Client.IsConnected())
             {
                 if (Debug) Console.WriteLine("Client is not connected");
-                return true;
+                return false;
             }
 
-            return false;
+            return true;
         }
         
         /// <summary>
@@ -201,24 +235,58 @@ namespace WatsonCluster
 
         private bool SrvClientConnect(string ipPort)
         {
-            CurrPeerIpPort = ipPort;
-            if (Client != null
-                && Client.IsConnected())
+            if (AllowedPeerClientIps.Contains(ipPort.Split(singleColonSplit, 2)[0]))
             {
-                ClusterHealthy();
+                PeerUpdateSemSlm.Wait();
+                if (CurrPeerIpPort != null && CurrPeerIpPort != ipPort)
+                    OldPeerClientIpPorts.Add(CurrPeerIpPort);
+
+                CurrPeerIpPort = ipPort;
+                PeerUpdateSemSlm.Release();
+
+                if (Client != null && Client.IsConnected())
+                    ClusterHealthy();
             }
+            else
+            {
+                NonPeerClientIpPorts.Add(ipPort);
+                NonPeerClientConnected?.Invoke(ipPort);
+            }
+
             return true;
         }
 
         private bool SrvClientDisconnect(string ipPort)
         {
-            CurrPeerIpPort = null;
-            ClusterUnhealthy();
+            if (ipPort == CurrPeerIpPort)
+            {
+                PeerUpdateSemSlm.Wait();
+                CurrPeerIpPort = null;
+                PeerUpdateSemSlm.Release();
+
+                ClusterUnhealthy();
+            }
+            else if (NonPeerClientIpPorts.Remove(ipPort))
+            {
+                NonPeerClientDisconnected?.Invoke(ipPort);
+            }
+            else
+            {
+                PeerUpdateSemSlm.Wait();
+                OldPeerClientIpPorts.Remove(ipPort);
+                PeerUpdateSemSlm.Release();
+            }
             return true;
         }
 
         private bool SrvMsgReceived(string ipPort, byte[] data)
         {
+            if (ipPort != CurrPeerIpPort)
+            {
+                // ignoring everyone else for now
+                return true;
+            }
+
             MessageReceived(data);
             return true;
         }
@@ -226,7 +294,7 @@ namespace WatsonCluster
         private bool CliServerConnect()
         {
             if (Server != null
-                && !String.IsNullOrEmpty(CurrPeerIpPort)
+                && !string.IsNullOrEmpty(CurrPeerIpPort)
                 && Server.IsConnected(CurrPeerIpPort))
             {
                 ClusterHealthy();
