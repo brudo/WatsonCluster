@@ -4,12 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace WatsonCluster
+namespace WatsonClusterSsl
 {
     /// <summary>
-    /// A Watson cluster node, which includes both a cluster server and client.
+    /// A Watson cluster node with SSL, which includes both a cluster server and client.
     /// </summary>
-    public class ClusterNode : IDisposable
+    public class ClusterNodeSsl : IDisposable
     {
         #region Public-Members
 
@@ -20,9 +20,12 @@ namespace WatsonCluster
         private int LocalPort;
         private string PeerIp;
         private int PeerPort;
+        private string CertFile;
+        private string CertPass;
+        private bool AcceptInvalidCerts;
         private bool Debug;
-        private ClusterServer Server;
-        private ClusterClient Client;
+        private ClusterServerSsl Server;
+        private ClusterClientSsl Client;
 
         private Func<bool> ClusterHealthy;
         private Func<bool> ClusterUnhealthy;
@@ -40,14 +43,20 @@ namespace WatsonCluster
         /// <param name="peerIp">The IP address of the peer cluster node.</param>
         /// <param name="peerPort">The TCP port of the peer cluster node.</param>
         /// <param name="localPort">The TCP port on which the cluster server should listen.</param>
+        /// <param name="certFile">The PFX file containing the certificate.</param>
+        /// <param name="certPass">The password to the certificate.</param>
+        /// <param name="acceptInvalidCerts">True to accept invalid SSL certificates.</param>
         /// <param name="clusterHealthy">Function to be called when the cluster becomes healthy.</param>
         /// <param name="clusterUnhealthy">Function to be called when the cluster becomes unhealthy.</param>
         /// <param name="messageReceived">Function to be called when a message is received from the peer.</param>
         /// <param name="debug">Enable or disable debug logging to the console.</param>
-        public ClusterNode(
+        public ClusterNodeSsl(
             string peerIp,
             int peerPort,
             int localPort,
+            string certFile, 
+            string certPass, 
+            bool acceptInvalidCerts,
             Func<bool> clusterHealthy,
             Func<bool> clusterUnhealthy,
             Func<byte[], bool> messageReceived,
@@ -56,6 +65,7 @@ namespace WatsonCluster
             if (String.IsNullOrEmpty(peerIp)) throw new ArgumentNullException(nameof(peerIp));
             if (peerPort < 1) throw new ArgumentOutOfRangeException(nameof(peerPort));
             if (localPort < 1) throw new ArgumentOutOfRangeException(nameof(localPort));
+            if (String.IsNullOrEmpty(certFile)) throw new ArgumentNullException(nameof(certFile));
             if (clusterHealthy == null) throw new ArgumentNullException(nameof(clusterHealthy));
             if (clusterUnhealthy == null) throw new ArgumentNullException(nameof(clusterUnhealthy));
             if (messageReceived == null) throw new ArgumentNullException(nameof(messageReceived));
@@ -63,13 +73,16 @@ namespace WatsonCluster
             PeerIp = peerIp;
             PeerPort = peerPort;
             LocalPort = localPort;
+            CertFile = certFile;
+            CertPass = certPass;
+            AcceptInvalidCerts = acceptInvalidCerts;
             ClusterHealthy = clusterHealthy;
             ClusterUnhealthy = clusterUnhealthy;
             MessageReceived = messageReceived;
             Debug = debug;
 
-            Server = new ClusterServer(PeerIp, LocalPort, Debug, SrvClientConnect, SrvClientDisconnect, SrvMsgReceived);
-            Client = new ClusterClient(PeerIp, PeerPort, Debug, CliServerConnect, CliServerDisconnect, CliMsgReceived);
+            Server = new ClusterServerSsl(PeerIp, LocalPort, CertFile, CertPass, AcceptInvalidCerts, Debug, SrvClientConnect, SrvClientDisconnect, SrvMsgReceived);
+            Client = new ClusterClientSsl(PeerIp, PeerPort, CertFile, CertPass, AcceptInvalidCerts, Debug, CliServerConnect, CliServerDisconnect, CliMsgReceived);
         }
 
         /// <summary>
@@ -78,15 +91,21 @@ namespace WatsonCluster
         /// <param name="peerIp">The IP address of the peer cluster node.</param>
         /// <param name="peerPort">The TCP port of the peer cluster node.</param>
         /// <param name="localPort">The TCP port on which the cluster server should listen.</param>
+        /// <param name="certFile">The PFX file containing the certificate.</param>
+        /// <param name="certPass">The password to the certificate.</param>
+        /// <param name="acceptInvalidCerts">True to accept invalid SSL certificates.</param>
         /// <param name="permittedIps">The list of IP addresses allowed to connect.</param>
         /// <param name="clusterHealthy">Function to be called when the cluster becomes healthy.</param>
         /// <param name="clusterUnhealthy">Function to be called when the cluster becomes unhealthy.</param>
         /// <param name="messageReceived">Function to be called when a message is received from the peer.</param>
         /// <param name="debug">Enable or disable debug logging to the console.</param>
-        public ClusterNode(
+        public ClusterNodeSsl(
             string peerIp,
             int peerPort,
             int localPort,
+            string certFile,
+            string certPass,
+            bool acceptInvalidCerts,
             IEnumerable<string> permittedIps,
             Func<bool> clusterHealthy,
             Func<bool> clusterUnhealthy,
@@ -96,6 +115,7 @@ namespace WatsonCluster
             if (String.IsNullOrEmpty(peerIp)) throw new ArgumentNullException(nameof(peerIp));
             if (peerPort < 1) throw new ArgumentOutOfRangeException(nameof(peerPort));
             if (localPort < 1) throw new ArgumentOutOfRangeException(nameof(localPort));
+            if (String.IsNullOrEmpty(certFile)) throw new ArgumentNullException(nameof(certFile));
             if (clusterHealthy == null) throw new ArgumentNullException(nameof(clusterHealthy));
             if (clusterUnhealthy == null) throw new ArgumentNullException(nameof(clusterUnhealthy));
             if (messageReceived == null) throw new ArgumentNullException(nameof(messageReceived));
@@ -103,6 +123,9 @@ namespace WatsonCluster
             PeerIp = peerIp;
             PeerPort = peerPort;
             LocalPort = localPort;
+            CertFile = certFile;
+            CertPass = certPass;
+            AcceptInvalidCerts = acceptInvalidCerts;
             ClusterHealthy = clusterHealthy;
             ClusterUnhealthy = clusterUnhealthy;
             MessageReceived = messageReceived;
@@ -111,8 +134,8 @@ namespace WatsonCluster
             List<string> PermittedIps = null;
             if (permittedIps != null && permittedIps.Count() > 0) permittedIps = new List<string>(permittedIps);
 
-            Server = new ClusterServer(PermittedIps, LocalPort, Debug, SrvClientConnect, SrvClientDisconnect, SrvMsgReceived);
-            Client = new ClusterClient(PeerIp, PeerPort, Debug, CliServerConnect, CliServerDisconnect, CliMsgReceived);
+            Server = new ClusterServerSsl(PermittedIps, LocalPort, CertFile, CertPass, AcceptInvalidCerts, Debug, SrvClientConnect, SrvClientDisconnect, SrvMsgReceived);
+            Client = new ClusterClientSsl(PeerIp, PeerPort, CertFile, CertPass, AcceptInvalidCerts, Debug, CliServerConnect, CliServerDisconnect, CliMsgReceived);
         }
 
         #endregion
@@ -130,7 +153,7 @@ namespace WatsonCluster
                 if (Debug) Console.WriteLine("Server object is null");
                 return false;
             }
-            
+
             if (Client == null)
             {
                 if (Debug) Console.WriteLine("Client object is null");
@@ -157,7 +180,7 @@ namespace WatsonCluster
 
             return false;
         }
-        
+
         /// <summary>
         /// Send a message to the peer node.
         /// </summary>

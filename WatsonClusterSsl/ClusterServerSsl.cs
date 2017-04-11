@@ -7,12 +7,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using WatsonTcp;
 
-namespace WatsonCluster
+namespace WatsonClusterSsl
 {
     /// <summary>
-    /// The Watson cluster server node (receives connections from clients).  Use ClusterNode, which encapsulates this class.
+    /// The Watson cluster server node (receives connections from clients) with SSL.  Use ClusterNode, which encapsulates this class.
     /// </summary>
-    public class ClusterServer : IDisposable
+    public class ClusterServerSsl : IDisposable
     {
         #region Public-Members
 
@@ -21,8 +21,11 @@ namespace WatsonCluster
         #region Private-Members
 
         private int Port;
+        private string CertFile;
+        private string CertPass;
+        private bool AcceptInvalidCerts;
         private bool Debug;
-        private WatsonTcpServer Wtcp;
+        private WatsonTcpSslServer Wtcp;
 
         private Func<string, bool> ClientConnected;
         private Func<string, bool> ClientDisconnected;
@@ -37,19 +40,26 @@ namespace WatsonCluster
         /// </summary>
         /// <param name="peerIp">The IP address of the peer client.</param>
         /// <param name="port">The TCP port on which the cluster server should listen.</param>
+        /// <param name="certFile">The PFX file containing the certificate.</param>
+        /// <param name="certPass">The password to the certificate.</param>
+        /// <param name="acceptInvalidCerts">True to accept invalid SSL certificates.</param>
         /// <param name="debug">Enable or disable debug logging to the console.</param>
         /// <param name="clientConnected">Function to be called when the peer connects.</param>
         /// <param name="clientDisconnected">Function to be called when the peer disconnects.</param>
         /// <param name="messageReceived">Function to be called when a message is received from the peer.</param>
-        public ClusterServer(string peerIp, int port, bool debug, Func<string, bool> clientConnected, Func<string, bool> clientDisconnected, Func<string, byte[], bool> messageReceived)
+        public ClusterServerSsl(string peerIp, int port, string certFile, string certPass, bool acceptInvalidCerts, bool debug, Func<string, bool> clientConnected, Func<string, bool> clientDisconnected, Func<string, byte[], bool> messageReceived)
         {
             if (String.IsNullOrEmpty(peerIp)) throw new ArgumentNullException(nameof(peerIp));
             if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException(nameof(port));
+            if (String.IsNullOrEmpty(certFile)) throw new ArgumentNullException(nameof(certFile));
             if (clientConnected == null) throw new ArgumentNullException(nameof(clientConnected));
             if (clientDisconnected == null) throw new ArgumentNullException(nameof(clientDisconnected));
             if (messageReceived == null) throw new ArgumentNullException(nameof(messageReceived));
 
             Port = port;
+            CertFile = certFile;
+            CertPass = certPass;
+            AcceptInvalidCerts = acceptInvalidCerts;
             Debug = debug;
             ClientConnected = clientConnected;
             ClientDisconnected = clientDisconnected;
@@ -58,7 +68,7 @@ namespace WatsonCluster
             List<string> permittedIps = new List<string>();
             permittedIps.Add(peerIp);
 
-            Wtcp = new WatsonTcpServer(null, Port, permittedIps, ClientConnect, ClientDisconnect, MsgReceived, Debug);
+            Wtcp = new WatsonTcpSslServer(null, Port, CertFile, CertPass, AcceptInvalidCerts, permittedIps, ClientConnect, ClientDisconnect, MsgReceived, Debug);
         }
 
         /// <summary>
@@ -66,18 +76,25 @@ namespace WatsonCluster
         /// </summary>
         /// <param name="permittedIps">The list of IP addresses allowed to connect.</param>
         /// <param name="port">The TCP port on which the cluster server should listen.</param>
+        /// <param name="certFile">The PFX file containing the certificate.</param>
+        /// <param name="certPass">The password to the certificate.</param>
+        /// <param name="acceptInvalidCerts">True to accept invalid SSL certificates.</param>
         /// <param name="debug">Enable or disable debug logging to the console.</param>
         /// <param name="clientConnected">Function to be called when the peer connects.</param>
         /// <param name="clientDisconnected">Function to be called when the peer disconnects.</param>
         /// <param name="messageReceived">Function to be called when a message is received from the peer.</param>
-        public ClusterServer(IEnumerable<string> permittedIps, int port, bool debug, Func<string, bool> clientConnected, Func<string, bool> clientDisconnected, Func<string, byte[], bool> messageReceived)
+        public ClusterServerSsl(IEnumerable<string> permittedIps, int port, string certFile, string certPass, bool acceptInvalidCerts, bool debug, Func<string, bool> clientConnected, Func<string, bool> clientDisconnected, Func<string, byte[], bool> messageReceived)
         {
             if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException(nameof(port));
+            if (String.IsNullOrEmpty(certFile)) throw new ArgumentNullException(nameof(certFile));
             if (clientConnected == null) throw new ArgumentNullException(nameof(clientConnected));
             if (clientDisconnected == null) throw new ArgumentNullException(nameof(clientDisconnected));
             if (messageReceived == null) throw new ArgumentNullException(nameof(messageReceived));
 
             Port = port;
+            CertFile = certFile;
+            CertPass = certPass;
+            AcceptInvalidCerts = acceptInvalidCerts;
             Debug = debug;
             ClientConnected = clientConnected;
             ClientDisconnected = clientDisconnected;
@@ -85,8 +102,8 @@ namespace WatsonCluster
 
             List<string> PermittedIps = null;
             if (permittedIps != null && permittedIps.Count() > 0) PermittedIps = new List<string>(permittedIps);
-            
-            Wtcp = new WatsonTcpServer(null, Port, PermittedIps, ClientConnect, ClientDisconnect, MsgReceived, Debug);
+
+            Wtcp = new WatsonTcpSslServer(null, Port, CertFile, CertPass, AcceptInvalidCerts, PermittedIps, ClientConnect, ClientDisconnect, MsgReceived, Debug);
         }
 
         #endregion
@@ -203,7 +220,7 @@ namespace WatsonCluster
 
             return MessageReceived(ipPort, data);
         }
-        
+
         #endregion
     }
 }

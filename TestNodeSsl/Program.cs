@@ -3,27 +3,33 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using WatsonCluster;
+using WatsonClusterSsl;
 
-namespace TestNode
+namespace TestNodeSsl
 {
     class Program
     {
         static int localPort = 0;
         static int remotePort = 0;
-        static ClusterNode n;
+        static string certFile = "";
+        static string certPass = "";
+        static ClusterNodeSsl n;
 
         static void Main(string[] args)
         {
-            while (localPort < 1 || remotePort < 1)
-            {
-                Console.Write("Local port  : ");
-                localPort = Convert.ToInt32(Console.ReadLine());
-                Console.Write("Remote port : ");
-                remotePort = Convert.ToInt32(Console.ReadLine());
-            }
+            Console.Write("Local port  : ");
+            localPort = Convert.ToInt32(Console.ReadLine());
 
-            n = new ClusterNode("127.0.0.1", remotePort, localPort, ClusterHealthy, ClusterUnhealthy, MessageReceived, false);
+            Console.Write("Remote port : ");
+            remotePort = Convert.ToInt32(Console.ReadLine());
+
+            Console.Write("Cert file   : ");
+            certFile = Console.ReadLine();
+
+            Console.Write("Cert pass   : ");
+            certPass = Console.ReadLine();
+
+            n = new ClusterNodeSsl("127.0.0.1", remotePort, localPort, certFile, certPass, true, ClusterHealthy, ClusterUnhealthy, MessageReceived, false);
 
             bool runForever = true;
             while (runForever)
